@@ -132,10 +132,40 @@ const readFileContent = tool({
   }
 });
 
+const findClientLintErrors = tool({
+    description: "Finds and returns lint errors in the client folder using ESLint. Use this tool to check for code style and syntax issues in the client codebase. Returns a list of errors and warnings.",
+    parameters: z.object({}),
+    execute: async () => {
+      return new Promise((resolve) => {
+        const clientPath = path.resolve(process.cwd(), '..', 'client');
+        const command = process.platform === 'win32'
+          ? `cmd /c "cd \"${clientPath}\" && npx eslint . --format json"`
+          : `cd \"${clientPath}\" && npx eslint . --format json`;
+        exec(command, { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
+          if (error && !stdout) {
+            resolve({ error: error.message, stderr });
+            return;
+          }
+          try {
+            const results = JSON.parse(stdout);
+            const errors = results.flatMap((file: any) => file.messages.map((msg: any) => ({
+              filePath: file.filePath,
+              ...msg
+            })));
+            resolve({ errors, stderr });
+          } catch (e) {
+            resolve({ error: 'Failed to parse ESLint output', details: (e as Error).message, raw: stdout, stderr });
+          }
+        });
+      });
+    }
+})
+
 export const tools = {
   getCurrentDateTime,
   getCurrentWeather,
   runTerminalCommand,
   getClientFolderStructure,
   readFileContent,
+  findClientLintErrors
 };
