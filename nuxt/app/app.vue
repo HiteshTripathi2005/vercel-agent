@@ -2,12 +2,13 @@
   <div style="padding: 2rem; font-family: sans-serif; max-width: 1000px; margin: 0 auto;">
     <h1>🚀 AI Tool - Debug Version</h1>
 
-    <div style="margin-bottom: 1rem;">
+
+    <form style="margin-bottom: 1rem; display: flex; align-items: center;" @submit.prevent="handleSubmit">
       <input
         type="text"
-        v-model="inputValue"
-        @keypress.enter="!loading && handleButtonClick()"
+        v-model="input"
         placeholder="Ask something..."
+        :disabled="status === 'submitted' || status === 'streaming'"
         style="
           padding: 0.5rem;
           font-size: 16px;
@@ -17,9 +18,9 @@
           border: 1px solid #ccc;
         "
       />
-        <button
-        @click="handleButtonClick"
-        :disabled="loading || !inputValue.trim()"
+      <button
+        type="submit"
+        :disabled="status === 'submitted' || status === 'streaming' || !input.trim()"
         :style="{
           marginLeft: '0.5rem',
           padding: '0.5rem 1rem',
@@ -29,16 +30,20 @@
           backgroundColor: '#007bff',
           color: 'white',
           cursor: 'pointer',
-          opacity: (loading || !inputValue.trim()) ? 0.5 : 1
+          opacity: ((status === 'submitted' || status === 'streaming' || !input.trim()) ? 0.5 : 1)
         }"
       >
-        {{ loading ? 'Generating...' : 'Generate' }}
+        {{ (status === 'submitted' || status === 'streaming') ? 'Generating...' : 'Generate' }}
       </button>
-    </div>
+      <span v-if="status === 'error'" style="color: red; margin-left: 1rem;">Error</span>
+      <span v-else-if="status === 'streaming'" style="color: #007bff; margin-left: 1rem;">Streaming...</span>
+      <span v-else-if="status === 'submitted'" style="color: #007bff; margin-left: 1rem;">Submitting...</span>
+      <span v-else-if="status === 'ready'" style="color: green; margin-left: 1rem;">Ready</span>
+    </form>
 
     <div style="display: flex; gap: 1rem;">
       <div style="flex: 1;">
-        <h3>Response:</h3>
+        <h3>Chat History:</h3>
         <div
           style="
             padding: 1rem;
@@ -48,11 +53,23 @@
             white-space: pre-wrap;
             border: 1px solid #ddd;
             font-family: monospace;
+            max-height: 300px;
+            overflow-y: auto;
           "
         >
-          <span v-if="responseText">{{ responseText }}</span>
-          <span v-else-if="loading" style="color: #666;">Waiting for response...</span>
-          <span v-else>Response will appear here.</span>
+          <template v-if="messages.length">
+            <div v-for="m in messages" :key="m.id" style="margin-bottom: 1em;">
+              <div style="font-weight: bold; color: #007bff;">{{ m.role === 'user' ? 'User:' : 'AI:' }}</div>
+              <div v-for="(part, idx) in m.parts" :key="idx">
+                <span v-if="part.type === 'text'">{{ part.text }}</span>
+                <span v-else-if="part.type === 'tool-invocation'">
+                  [Tool: {{ (part as any).toolName }}]
+                </span>
+                <span v-else>[{{ part.type }}]</span>
+              </div>
+            </div>
+          </template>
+          <span v-else style="color: #666;">No chat history yet.</span>
         </div>
       </div>
 
@@ -95,86 +112,23 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
+import { useChat } from '@ai-sdk/vue';
+
+// Point to your Fastify backend endpoint for chat
+const {
+  messages,
+  input,
+  handleSubmit,
+  status,
+} = useChat({
+  api: 'http://localhost:3000/generate',
+});
+
+
+
 import { ref } from 'vue';
-
-const inputValue = ref('');
-const responseText = ref('');
-const loading = ref(false);
 const debugLogs = ref([]);
-
-function addDebugLog(message) {
-  const timestamp = new Date().toLocaleTimeString();
-  debugLogs.value.push(`[${timestamp}] ${message}`);
-  // Optionally, also log to console
-  // console.log(`[${timestamp}] ${message}`);
-}
-
-async function handleButtonClick() {
-  if (!inputValue.value.trim()) {
-    responseText.value = 'Please enter a prompt.';
-    return;
-  }
-  if (loading.value) {
-    addDebugLog('Request blocked - already loading');
-    return;
-  }
-  responseText.value = '';
-  debugLogs.value = [];
-  loading.value = true;
-  addDebugLog('Starting request...');
-  try {
-    addDebugLog('Sending fetch request to http://localhost:3000/generate');
-    const response = await fetch('http://localhost:3000/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: inputValue.value }),
-    });
-    addDebugLog(`Response status: ${response.status} ${response.statusText}`);
-    addDebugLog(`Response headers: ${JSON.stringify(Object.fromEntries(response.headers))}`);
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    if (!response.body) {
-      throw new Error('No response body');
-    }
-    addDebugLog('Got response body, starting to read stream...');
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder('utf-8');
-    let chunkCount = 0;
-    try {
-      while (true) {
-        addDebugLog(`Reading chunk ${chunkCount + 1}...`);
-        const { done, value } = await reader.read();
-        if (done) {
-          addDebugLog('Stream completed');
-          break;
-        }
-        if (value) {
-          chunkCount++;
-          const chunk = decoder.decode(value, { stream: true });
-          addDebugLog(`Chunk ${chunkCount} received: "${chunk}" (${chunk.length} chars)`);
-          responseText.value += chunk;
-          addDebugLog(`Total text length: ${responseText.value.length}`);
-        }
-      }
-    } catch (streamError) {
-      addDebugLog(`Stream error: ${streamError.message}`);
-      throw streamError;
-    }
-  } catch (error) {
-    addDebugLog(`Fetch error: ${error.name} - ${error.message}`);
-    if (error.name === 'TypeError' && error.message.includes('fetch')) {
-      responseText.value = 'Error: Unable to connect to server. Make sure the backend is running on port 3000 and CORS is enabled.';
-    } else {
-      responseText.value = 'Error: ' + error.message;
-    }
-  } finally {
-    loading.value = false;
-    addDebugLog('Request completed');
-  }
-}
-
 function clearLogs() {
   debugLogs.value = [];
 }
