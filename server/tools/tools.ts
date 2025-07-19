@@ -159,7 +159,56 @@ const findClientLintErrors = tool({
         });
       });
     }
-})
+});
+
+const searchTextInClient = tool({
+  description: "Searches for a given text string in all files in the client folder (excluding node_modules) and returns a list of matches with file path and line number. Use this tool to find all references to a keyword or code snippet in the client codebase.",
+  parameters: z.object({
+    query: z.string().min(1).describe("The text string to search for in the client folder."),
+  }),
+  execute: async ({ query }) => {
+    const clientPath = path.resolve(process.cwd(), '..', 'client');
+    // Windows and Unix compatible grep/FindStr
+    const isWin = process.platform === 'win32';
+    const command = isWin
+      ? `cmd /c "cd \"${clientPath}\" && findstr /spin /c:"${query.replace(/"/g, '""')}" *.* | findstr /v /i node_modules"`
+      : `cd \"${clientPath}\" && grep -rn --exclude-dir=node_modules -- "${query.replace(/"/g, '\"')}" .`;
+    return new Promise((resolve) => {
+      exec(command, { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
+        if (error && !stdout) {
+          resolve({ error: error.message, stderr });
+          return;
+        }
+        // Parse output: file:line:text
+        const results = [];
+        const lines = stdout.split('\n');
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          if (isWin) {
+            // Windows: path:line:text
+            const match = line.match(/^(.*?):(\d+):(.*)$/);
+            if (match) {
+              results.push({ filePath: match[1], line: Number(match[2]), text: match[3] });
+            } else {
+              // fallback: path:text
+              const idx = line.indexOf(':');
+              if (idx > 0) {
+                results.push({ filePath: line.slice(0, idx), line: null, text: line.slice(idx + 1) });
+              }
+            }
+          } else {
+            // Unix: ./path:line:text
+            const match = line.match(/^\.?\/?(.*?):(\d+):(.*)$/);
+            if (match) {
+              results.push({ filePath: match[1], line: Number(match[2]), text: match[3] });
+            }
+          }
+        }
+        resolve({ matches: results, stderr });
+      });
+    });
+  }
+});
 
 export const tools = {
   getCurrentDateTime,
@@ -167,5 +216,6 @@ export const tools = {
   runTerminalCommand,
   getClientFolderStructure,
   readFileContent,
-  findClientLintErrors
+  findClientLintErrors,
+  searchTextInClient
 };

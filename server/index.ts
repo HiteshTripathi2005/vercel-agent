@@ -1,7 +1,7 @@
 import fastify from 'fastify';
 import { config } from 'dotenv';
 import cors from "@fastify/cors";
-import { generateResponse } from './controllers/ai';
+import { streamResponse } from './controllers/ai';
 config();
 
 const app = fastify();
@@ -13,7 +13,7 @@ app.get('/', async (request, reply) => {
     reply.status(200).send({ message: 'Hello, World!' });
 })
 
-app.post('/generate', generateResponse);
+app.post('/generate', streamResponse);
 
 const PORT = 3000;
 

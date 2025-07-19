@@ -6,32 +6,33 @@ import { FastifyReply, FastifyRequest } from "fastify";
 const model = google('gemini-2.5-flash');
 const system = `You are a helpful AI assistant name Hitesh. You can answer questions, provide explanations, and assist with various tasks,`;
 
-export const generateResponse = async (request: FastifyRequest, reply: FastifyReply) => {
-  try {
-    const { prompt } = request.body as any;
-    
-    //streaming headers
-    reply.raw.writeHead(200, {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'Transfer-Encoding': 'chunked',
-      'Access-Control-Allow-Origin': '*',
-      'X-Accel-Buffering': 'no',
-      'X-Content-Type-Options': 'nosniff'
-    });
+export const streamResponse = async (request: FastifyRequest, reply: FastifyReply) => {
+  const { prompt } = request.body as { prompt: string };
 
-    reply.raw.write('\n\n'); // Encourage browser rendering
+  console.log('Prompt:', prompt);
 
-    const { textStream } = streamText({ model, system, prompt, tools, maxSteps: 5 });
+  reply.raw.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "Access-Control-Allow-Origin": "*",
+  });
 
-    for await (const chunk of textStream) {
-      reply.raw.write(chunk + '\n');
-    }
-    reply.raw.end();
-    
-  } catch (error) {
-    console.error('Error generating response:', error);
-    reply.status(500).send({ error: 'Failed to generate response' });
+  const { textStream } = await streamText({
+    model,
+    system,
+    prompt,
+    tools,
+    maxSteps: 5,
+  });
+
+  // const allToolCalls = steps.flatMap(step => step.toolCalls);
+  // console.log('All Tool Calls:', allToolCalls);
+  // reply.raw.write(text);
+
+  for await (const chunk of textStream) {
+    console.log('Chunk:', chunk);
+    reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
   }
+  reply.raw.end();
 };
