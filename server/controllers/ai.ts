@@ -1,15 +1,15 @@
 import { google } from "@ai-sdk/google";
-import { generateText, streamText } from "ai";
+import { streamText } from "ai";
 import { tools } from "../tools/tools";
 import { FastifyReply, FastifyRequest } from "fastify";
 
 const model = google('gemini-2.5-flash');
-const system = `You are a helpful AI assistant name Hitesh. You can answer questions, provide explanations, and assist with various tasks,`;
+const system = `You are an AI coding editor with expert-level knowledge of all programming languages, frameworks, and best practices. You understand both general software concepts and specific client-side architectures. You can explain, generate, and review code, and you know how to use available tools efficiently. Always provide clear, concise, and smart answers tailored to the user’s needs.`;
 
 export const streamResponse = async (request: FastifyRequest, reply: FastifyReply) => {
-  const { prompt } = request.body as { prompt: string };
-
-  console.log('Prompt:', prompt);
+  const { messages } = request.body as { messages: any[] };
+  
+  console.log("Received messages:", messages);
 
   reply.raw.writeHead(200, {
     "Content-Type": "text/event-stream",
@@ -18,21 +18,21 @@ export const streamResponse = async (request: FastifyRequest, reply: FastifyRepl
     "Access-Control-Allow-Origin": "*",
   });
 
-  const { textStream } = await streamText({
-    model,
-    system,
-    prompt,
-    tools,
-    maxSteps: 5,
-  });
+  try {
+    const result = streamText({
+      model,
+      system,
+      messages,
+      tools,
+      maxSteps: 5,
+    });
 
-  // const allToolCalls = steps.flatMap(step => step.toolCalls);
-  // console.log('All Tool Calls:', allToolCalls);
-  // reply.raw.write(text);
+    console.log("Received result:", result);
 
-  for await (const chunk of textStream) {
-    console.log('Chunk:', chunk);
-    reply.raw.write(`data: ${JSON.stringify(chunk)}\n\n`);
+    return result.toDataStreamResponse();
+
+  } catch (err) {
+    reply.raw.write(`event: error\ndata: ${JSON.stringify({ error: (err as Error).message })}\n\n`);
+    reply.raw.end();
   }
-  reply.raw.end();
 };
