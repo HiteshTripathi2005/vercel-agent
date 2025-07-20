@@ -15,7 +15,7 @@ app.get('/', async (request, reply) => {
 
 app.post('/generate', streamResponse);
 
-const PORT = 3000;
+const PORT = 3001;
 
 app.listen({ port: PORT }, (err, address) => {
   if (err) {

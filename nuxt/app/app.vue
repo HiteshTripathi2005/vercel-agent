@@ -1,31 +1,78 @@
 <template>
-  <div style="padding: 2rem; font-family: sans-serif; max-width: 1000px; margin: 0 auto;">
-    <h1>🚀 AI Tool - Debug Version</h1>
-
-
-    <form style="margin-bottom: 1rem; display: flex; align-items: center;" @submit.prevent="handleSubmit">
+  <div style="position: fixed; inset: 0; background: #f8fafc; font-family: sans-serif; display: flex; flex-direction: column; min-height: 100vh; width: 100vw; z-index: 0;">
+    <div style="flex: 1 1 0; display: flex; flex-direction: column; justify-content: flex-end; max-width: 700px; margin: 0 auto; width: 100%; padding: 0 0 90px 0;">
+      <div style="flex: 1 1 0; overflow-y: auto; padding: 2rem 0 0 0;">
+        <template v-if="messages.length">
+          <div v-for="(message, messageIndex) in messages" :key="message.id">
+            <template v-if="message.role === 'user'">
+              <div style="margin-bottom: 0.5em; display: flex; align-items: flex-start; gap: 0.5em; justify-content: flex-end;">
+                <div style="background: #e3f2fd; color: #1565c0; padding: 0.5em 1em; border-radius: 8px 0 8px 8px; font-weight: 500; max-width: 70%; text-align: right; box-shadow: 0 1px 4px #e3eaff;">
+                  <span style="font-size: 0.9em; font-weight: bold;">User:</span><br>
+                  <span>
+                    {{
+                      (() => {
+                        const part = message.parts.find(p => (p as any).type === 'text');
+                        return part && 'text' in part ? (part as any).text : '';
+                      })()
+                    }}
+                  </span>
+                </div>
+              </div>
+              <template v-if="messages[messageIndex+1] && (messages[messageIndex+1]?.parts?.some(p => (p as any).type === 'tool-invocation') || messages[messageIndex+1]?.role === 'assistant')">
+                <div style="margin-bottom: 1.5em; display: flex; align-items: flex-start; gap: 0.5em; justify-content: flex-start;">
+                  <div style="background: linear-gradient(135deg, #fff5f5 60%, #e8f5e9 100%); color: #222; padding: 0.75em 1.2em; border-radius: 12px 12px 0 12px; font-weight: 500; max-width: 75%; border-left: 4px solid #4caf50; box-shadow: 0 1px 6px #eaffea;">
+                    <div v-if="messages[messageIndex+1]?.parts?.some(p => (p as any).type === 'tool-invocation')">
+                      <span style="font-size: 0.9em; font-weight: bold; color: #b71c1c;">🔧 Tool Called:</span><br>
+                      <template v-for="(part, partIndex) in messages[messageIndex+1]?.parts ?? []" :key="`tool-${messageIndex+1}-${partIndex}`">
+                        <div v-if="(part as any).type === 'tool-invocation'">
+                          <div><strong>{{ (part as any).toolInvocation?.toolName || 'Unknown Tool' }}</strong></div>
+                        </div>
+                      </template>
+                      <hr style="border: none; border-top: 1px dashed #bdbdbd; margin: 0.5em 0;">
+                    </div>
+                    <div v-if="messages[messageIndex+1]?.role === 'assistant' && Array.isArray(messages[messageIndex+1]?.parts)">
+                      <span style="font-size: 0.9em; font-weight: bold; color: #388e3c;">AI:</span><br>
+                      <span>
+                        {{
+                          (() => {
+                            const parts = messages[messageIndex+1]?.parts ?? [];
+                            const part = parts.find(p => (p as any).type === 'text');
+                            return part && 'text' in part ? (part as any).text : '';
+                          })()
+                        }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </template>
+          </div>
+        </template>
+        <span v-else style="color: #666;">No chat history yet.</span>
+      </div>
+    </div>
+    <form style="position: fixed; bottom: 0; left: 0; width: 100vw; background: #fff; border-top: 1px solid #e0e0e0; display: flex; align-items: center; padding: 1rem 0.5rem 1rem 0.5rem; z-index: 10; box-shadow: 0 -2px 8px #e3eaff; max-width: 700px; margin: 0 auto; right: 0;" @submit.prevent="handleSubmit">
       <input
         type="text"
         v-model="input"
         placeholder="Ask something..."
         :disabled="status === 'submitted' || status === 'streaming'"
         style="
-          padding: 0.5rem;
-          font-size: 16px;
+          padding: 0.75rem;
+          font-size: 18px;
           width: 100%;
-          max-width: 400px;
-          border-radius: 4px;
+          border-radius: 6px;
           border: 1px solid #ccc;
+          margin-right: 0.5rem;
         "
       />
       <button
         type="submit"
         :disabled="status === 'submitted' || status === 'streaming' || !input.trim()"
         :style="{
-          marginLeft: '0.5rem',
-          padding: '0.5rem 1rem',
-          fontSize: '16px',
-          borderRadius: '4px',
+          padding: '0.75rem 1.5rem',
+          fontSize: '18px',
+          borderRadius: '6px',
           border: 'none',
           backgroundColor: '#007bff',
           color: 'white',
@@ -33,87 +80,19 @@
           opacity: ((status === 'submitted' || status === 'streaming' || !input.trim()) ? 0.5 : 1)
         }"
       >
-        {{ (status === 'submitted' || status === 'streaming') ? 'Generating...' : 'Generate' }}
+        {{ (status === 'submitted' || status === 'streaming') ? 'Generating...' : 'Send' }}
       </button>
       <span v-if="status === 'error'" style="color: red; margin-left: 1rem;">Error</span>
       <span v-else-if="status === 'streaming'" style="color: #007bff; margin-left: 1rem;">Streaming...</span>
       <span v-else-if="status === 'submitted'" style="color: #007bff; margin-left: 1rem;">Submitting...</span>
       <span v-else-if="status === 'ready'" style="color: green; margin-left: 1rem;">Ready</span>
     </form>
-
-    <div style="display: flex; gap: 1rem;">
-      <div style="flex: 1;">
-        <h3>Chat History:</h3>
-        <div
-          style="
-            padding: 1rem;
-            background: #f4f4f4;
-            border-radius: 8px;
-            min-height: 100px;
-            white-space: pre-wrap;
-            border: 1px solid #ddd;
-            font-family: monospace;
-            max-height: 300px;
-            overflow-y: auto;
-          "
-        >
-          <template v-if="messages.length">
-            <div v-for="m in messages" :key="m.id" style="margin-bottom: 1em;">
-              <div style="font-weight: bold; color: #007bff;">{{ m.role === 'user' ? 'User:' : 'AI:' }}</div>
-              <div v-for="(part, idx) in m.parts" :key="idx">
-                <span v-if="part.type === 'text'">{{ part.text }}</span>
-                <span v-else-if="part.type === 'tool-invocation'">
-                  [Tool: {{ (part as any).toolName }}]
-                </span>
-                <span v-else>[{{ part.type }}]</span>
-              </div>
-            </div>
-          </template>
-          <span v-else style="color: #666;">No chat history yet.</span>
-        </div>
-      </div>
-
-      <div style="flex: 1;">
-        <h3>
-          Debug Logs:
-          <button @click="clearLogs" style="margin-left: 0.5rem; font-size: 12px; padding: 0.25rem 0.5rem;">
-            Clear
-          </button>
-        </h3>
-        <div
-          style="
-            padding: 1rem;
-            background: #1e1e1e;
-            color: #00ff00;
-            border-radius: 8px;
-            min-height: 100px;
-            max-height: 300px;
-            overflow-y: auto;
-            font-family: monospace;
-            font-size: 12px;
-            white-space: pre-wrap;
-          "
-        >
-          <span v-if="debugLogs.length === 0">Debug logs will appear here...</span>
-          <span v-else>{{ debugLogs.join('\n') }}</span>
-        </div>
-      </div>
-    </div>
-
-    <div style="margin-top: 1rem; padding: 1rem; background: #fff3cd; border-radius: 4px; border: 1px solid #ffeaa7;">
-      <h4>Troubleshooting Steps:</h4>
-      <ol>
-        <li>Make sure your backend is running on port 3000</li>
-        <li>Check if CORS is enabled on your backend</li>
-        <li>Open browser DevTools (F12) and check Console and Network tabs</li>
-        <li>Try accessing http://localhost:3000/generate directly in your browser</li>
-      </ol>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { useChat } from '@ai-sdk/vue';
+import { ref } from 'vue';
 
 // Point to your Fastify backend endpoint for chat
 const {
@@ -122,13 +101,10 @@ const {
   handleSubmit,
   status,
 } = useChat({
-  api: 'http://localhost:3000/generate',
+  api: 'http://localhost:3001/generate',
 });
 
-
-
-import { ref } from 'vue';
-const debugLogs = ref([]);
+const debugLogs = ref<string[]>([]);
 function clearLogs() {
   debugLogs.value = [];
 }

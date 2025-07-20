@@ -162,51 +162,92 @@ const findClientLintErrors = tool({
 });
 
 const searchTextInClient = tool({
-  description: "Searches for a given text string in all files in the client folder (excluding node_modules) and returns a list of matches with file path and line number. Use this tool to find all references to a keyword or code snippet in the client codebase.",
+  description: "Performs an accurate, VS Code-like search for a given text string, regex, or whole word in all text files in the client folder (excluding node_modules and binary files). Supports case sensitivity, regex, whole word, and context lines. Returns matches with file path, line number, line text, and context. Use this tool to find all references to a keyword, code snippet, or pattern in the client codebase.",
   parameters: z.object({
-    text: z.string().min(1).describe("The text string to search for in the client folder."),
+    text: z.string().min(1).describe("The text string or regex pattern to search for in the client folder."),
+    isRegex: z.boolean().optional().default(false).describe("Whether to treat the text as a regex pattern."),
+    caseSensitive: z.boolean().optional().default(false).describe("Whether the search is case sensitive."),
+    wholeWord: z.boolean().optional().default(false).describe("Whether to match the whole word only."),
+    contextLines: z.number().optional().default(0).describe("Number of context lines to include before and after each match."),
   }),
-  execute: async ({ text }) => {
-    const clientPath = path.resolve(process.cwd(), '..', 'client');
-    // Windows and Unix compatible grep/FindStr
-    const isWin = process.platform === 'win32';
-    const command = isWin
-      ? `cmd /c "cd \"${clientPath}\" && findstr /spin /c:"${text.replace(/"/g, '""')}" *.* | findstr /v /i node_modules"`
-      : `cd \"${clientPath}\" && grep -rn --exclude-dir=node_modules -- "${text.replace(/"/g, '\"')}" .`;
-    return new Promise((resolve) => {
-      exec(command, { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
-        if (error && !stdout) {
-          resolve({ error: error.message, stderr });
-          return;
+  execute: async ({ text, isRegex = false, caseSensitive = false, wholeWord = false, contextLines = 0 }) => {
+    try {
+      // Use fast-glob for file listing
+      let fg;
+      try {
+        fg = (await import('fast-glob')).default;
+      } catch (e) {
+        return { error: 'fast-glob is required. Please install it with `npm install fast-glob` in the server directory.' };
+      }
+      const clientPath = path.resolve(process.cwd(), '..', 'client');
+      // Check if client directory exists
+      try {
+        const stat = await fs.stat(clientPath);
+        if (!stat.isDirectory()) {
+          return { error: `Client path ${clientPath} exists but is not a directory.` };
         }
-        // Parse output: file:line:text
-        const results = [];
-        const lines = stdout.split('\n');
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          if (isWin) {
-            // Windows: path:line:text
-            const match = line.match(/^(.*?):(\d+):(.*)$/);
-            if (match) {
-              results.push({ filePath: match[1], line: Number(match[2]), text: match[3] });
-            } else {
-              // fallback: path:text
-              const idx = line.indexOf(':');
-              if (idx > 0) {
-                results.push({ filePath: line.slice(0, idx), line: null, text: line.slice(idx + 1) });
-              }
-            }
-          } else {
-            // Unix: ./path:line:text
-            const match = line.match(/^\.?\/?(.*?):(\d+):(.*)$/);
-            if (match) {
-              results.push({ filePath: match[1], line: Number(match[2]), text: match[3] });
-            }
+      } catch (e) {
+        return { error: `Client directory not found at ${clientPath}.` };
+      }
+      // List all files except node_modules and common binary extensions
+      const files = await fg(["**/*", "!node_modules/**", "!**/*.png", "!**/*.jpg", "!**/*.jpeg", "!**/*.gif", "!**/*.ico", "!**/*.exe", "!**/*.dll", "!**/*.bin", "!**/*.pdf", "!**/*.zip", "!**/*.tar", "!**/*.gz", "!**/*.mp3", "!**/*.mp4", "!**/*.mov", "!**/*.avi", "!**/*.woff*", "!**/*.ttf", "!**/*.eot", "!**/*.otf", "!**/*.svg"], { cwd: clientPath, dot: true, onlyFiles: true });
+      if (!files.length) {
+        return { error: `No files found in client directory (${clientPath}).` };
+      }
+
+      // Prepare regex
+      let pattern;
+      if (isRegex) {
+        pattern = text;
+      } else {
+        pattern = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      }
+      if (wholeWord) {
+        pattern = `\\b${pattern}\\b`;
+      }
+      const regex = new RegExp(pattern, caseSensitive ? '' : 'i');
+
+      // Helper to check if file is text (simple heuristic)
+      function isText(content: string) {
+        // If >30% non-printable, treat as binary
+        const nonPrintable = (content.match(/[^\x09\x0A\x0D\x20-\x7E]/g) || []).length;
+        return nonPrintable < content.length * 0.3;
+      }
+
+      const matches = [];
+      for (const file of files) {
+        let content;
+        try {
+          content = await fs.readFile(path.join(clientPath, file), 'utf8');
+        } catch (e) {
+          continue;
+        }
+        if (!isText(content)) continue;
+        const lines = content.split(/\r?\n/);
+        for (let i = 0; i < lines.length; ++i) {
+          if (regex.test(lines[i])) {
+            // Collect context
+            const before = [];
+            const after = [];
+            for (let j = Math.max(0, i - contextLines); j < i; ++j) before.push(lines[j]);
+            for (let j = i + 1; j <= Math.min(lines.length - 1, i + contextLines); ++j) after.push(lines[j]);
+            matches.push({
+              filePath: file,
+              line: i + 1,
+              text: lines[i],
+              contextBefore: before,
+              contextAfter: after
+            });
           }
         }
-        resolve({ matches: results, stderr });
-      });
-    });
+      }
+      if (!matches.length) {
+        return { message: `No matches found for '${text}' in ${files.length} files in client directory.` };
+      }
+      return { matches, filesScanned: files.length, matchesFound: matches.length };
+    } catch (err) {
+      return { error: (err as Error).message || 'Unknown error occurred in searchTextInClient.' };
+    }
   }
 });
 
