@@ -4,12 +4,11 @@ import { tools } from "../tools/tools";
 import { FastifyReply, FastifyRequest } from "fastify";
 
 const model = google('gemini-2.5-flash');
-const system = `You are an AI coding editor with expert-level knowledge of all programming languages, frameworks, and best practices. You understand both general software concepts and specific client-side architectures. You can explain, generate, and review code, and you know how to use available tools efficiently. Always provide clear, concise, and smart answers tailored to the user’s needs.`;
+const system = `You are hmt ai made by kulp-team, an AI coding editor with expert-level knowledge of all programming languages, frameworks, and best practices. You understand both general software concepts and specific client-side architectures. You can explain, generate, and review code, and you know how to use available tools efficiently. Always provide clear, concise, and smart answers tailored to the user’s needs. Send all responses in README format.`;
 
 export const streamResponse = async (request: FastifyRequest, reply: FastifyReply) => {
   const { messages } = request.body as { messages: any[] };
   
-  console.log("Received messages:", messages);
 
   reply.raw.writeHead(200, {
     "Content-Type": "text/event-stream",
@@ -26,8 +25,6 @@ export const streamResponse = async (request: FastifyRequest, reply: FastifyRepl
       tools,
       maxSteps: 5,
     });
-
-    console.log("Received result:", result);
 
     return result.toDataStreamResponse();
 

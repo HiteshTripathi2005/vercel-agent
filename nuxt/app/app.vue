@@ -1,9 +1,9 @@
 <template>
   <div style="position: fixed; inset: 0; background: #f8fafc; font-family: sans-serif; display: flex; flex-direction: column; min-height: 100vh; width: 100vw; z-index: 0;">
     <div style="flex: 1 1 0; display: flex; flex-direction: column; justify-content: flex-end; max-width: 700px; margin: 0 auto; width: 100%; padding: 0 0 90px 0;">
-      <div style="flex: 1 1 0; overflow-y: auto; padding: 2rem 0 0 0;">
+      <div ref="chatContainer" style="flex: 1 1 0; overflow-y: auto; padding: 2rem 0 0 0; display: flex; flex-direction: column;">
         <template v-if="messages.length">
-          <div v-for="(message, messageIndex) in messages" :key="message.id">
+          <div v-for="(message, messageIndex) in orderedMessages" :key="message.id">
             <template v-if="message.role === 'user'">
               <div style="margin-bottom: 0.5em; display: flex; align-items: flex-start; gap: 0.5em; justify-content: flex-end;">
                 <div style="background: #e3f2fd; color: #1565c0; padding: 0.5em 1em; border-radius: 8px 0 8px 8px; font-weight: 500; max-width: 70%; text-align: right; box-shadow: 0 1px 4px #e3eaff;">
@@ -31,16 +31,16 @@
                       <hr style="border: none; border-top: 1px dashed #bdbdbd; margin: 0.5em 0;">
                     </div>
                     <div v-if="messages[messageIndex+1]?.role === 'assistant' && Array.isArray(messages[messageIndex+1]?.parts)">
-                      <span style="font-size: 0.9em; font-weight: bold; color: #388e3c;">AI:</span><br>
-                      <span>
-                        {{
-                          (() => {
-                            const parts = messages[messageIndex+1]?.parts ?? [];
-                            const part = parts.find(p => (p as any).type === 'text');
-                            return part && 'text' in part ? (part as any).text : '';
-                          })()
-                        }}
-                      </span>
+                      <span style="font-size: 0.9em; font-weight: bold; color: #388e3c;">AI (README):</span><br>
+                    <div
+                      v-html="renderMarkdown((() => {
+                        const parts = messages[messageIndex+1]?.parts ?? [];
+                        const part = parts.find(p => (p as any).type === 'text');
+                        return part && 'text' in part ? (part as any).text : '';
+                      })())"
+                      class="ai-readme-response"
+                      style="font-size: 1em; color: #222; background: none; padding: 0; margin: 0;"
+                    ></div>
                     </div>
                   </div>
                 </div>
@@ -92,7 +92,10 @@
 
 <script setup lang="ts">
 import { useChat } from '@ai-sdk/vue';
-import { ref } from 'vue';
+import { ref, watch, nextTick, computed } from 'vue';
+import { marked } from 'marked';
+
+const chatContainer = ref<HTMLElement | null>(null);
 
 // Point to your Fastify backend endpoint for chat
 const {
@@ -104,8 +107,48 @@ const {
   api: 'http://localhost:3001/generate',
 });
 
+const orderedMessages = computed(() => [...messages.value]);
+
 const debugLogs = ref<string[]>([]);
 function clearLogs() {
   debugLogs.value = [];
 }
+
+function renderMarkdown(text: string) {
+  return marked.parse(text || '');
+}
+
+function addCopyButtons() {
+  // Wait for DOM update
+  nextTick(() => {
+    const codeBlocks = document.querySelectorAll('.ai-readme-response pre');
+    codeBlocks.forEach((pre) => {
+      if (pre.querySelector('.copy-btn')) return; // Avoid duplicate buttons
+      const button = document.createElement('button');
+      button.textContent = 'Copy';
+      button.className = 'copy-btn';
+      button.style.cssText = 'position:absolute;top:8px;right:8px;padding:2px 8px;font-size:0.9em;background:#007bff;color:#fff;border:none;border-radius:4px;cursor:pointer;z-index:2;';
+      button.onclick = () => {
+        const code = pre.querySelector('code');
+        if (code) {
+          navigator.clipboard.writeText(code.textContent || '');
+          button.textContent = 'Copied!';
+          setTimeout(() => (button.textContent = 'Copy'), 1200);
+        }
+      };
+      (pre as HTMLElement).style.position = 'relative';
+      pre.appendChild(button);
+    });
+  });
+}
+
+// Auto-scroll to bottom when streaming or new message
+watch([messages, status], async () => {
+  await nextTick();
+  if (chatContainer.value && (status.value === 'streaming' || status.value === 'submitted' || status.value === 'ready')) {
+    chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
+  }
+  // Add copy buttons after new message
+  addCopyButtons();
+});
 </script>
