@@ -6,15 +6,173 @@ import * as path from 'path';
 
 
 const getCurrentDateTime = tool({
-  description: "Returns the current local time and date. Use this tool when the user asks for the current time or date. Optionally, you can provide a 'format' argument as a BCP 47 language tag (e.g., 'en-US', 'fr-FR') to customize the output format. If not provided, 'en-US' will be used by default.",
+  description: "Returns the current local time and date for a given location. Use this tool when the user asks for the current time or date. Optionally, provide a 'format' argument as a BCP 47 language tag (e.g., 'en-US', 'fr-FR') and a 'location' argument (city name, country, or IANA time zone). If not provided, defaults to 'en-US' and server time zone.",
   parameters: z.object({
     format: z.string().optional().default('en-US'),
+    location: z.string().optional().describe("Location as city, country, or IANA time zone (e.g., 'America/New_York').")
   }),
-  execute: async ({ format = 'en-US' }) => {
-    return {
-      time: new Date().toLocaleTimeString(format),
-      date: new Date().toLocaleDateString(format)
+  execute: async ({ format = 'en-US', location }) => {
+    // Simple mapping for common cities to IANA time zones
+    const cityToTimeZone: Record<string, string> = {
+      'new york': 'America/New_York',
+      'london': 'Europe/London',
+      'paris': 'Europe/Paris',
+      'tokyo': 'Asia/Tokyo',
+      'delhi': 'Asia/Kolkata',
+      'los angeles': 'America/Los_Angeles',
+      'sydney': 'Australia/Sydney',
+      'berlin': 'Europe/Berlin',
+      'beijing': 'Asia/Shanghai',
+      'moscow': 'Europe/Moscow',
+      'chicago': 'America/Chicago',
+      'mumbai': 'Asia/Kolkata',
+      'singapore': 'Asia/Singapore',
+      'dubai': 'Asia/Dubai',
+      'hong kong': 'Asia/Hong_Kong',
+      'san francisco': 'America/Los_Angeles',
+      'toronto': 'America/Toronto',
+      'vancouver': 'America/Vancouver',
+      'rome': 'Europe/Rome',
+      'madrid': 'Europe/Madrid',
+      'istanbul': 'Europe/Istanbul',
+      'seoul': 'Asia/Seoul',
+      'buenos aires': 'America/Argentina/Buenos_Aires',
+      'cape town': 'Africa/Johannesburg',
+      'cairo': 'Africa/Cairo',
+      'jakarta': 'Asia/Jakarta',
+      'bangkok': 'Asia/Bangkok',
+      'mexico city': 'America/Mexico_City',
+      'sao paulo': 'America/Sao_Paulo',
+      'tehran': 'Asia/Tehran',
+      'athens': 'Europe/Athens',
+      'warsaw': 'Europe/Warsaw',
+      'vienna': 'Europe/Vienna',
+      'prague': 'Europe/Prague',
+      'budapest': 'Europe/Budapest',
+      'zurich': 'Europe/Zurich',
+      'amsterdam': 'Europe/Amsterdam',
+      'brussels': 'Europe/Brussels',
+      'stockholm': 'Europe/Stockholm',
+      'oslo': 'Europe/Oslo',
+      'helsinki': 'Europe/Helsinki',
+      'copenhagen': 'Europe/Copenhagen',
+      'lisbon': 'Europe/Lisbon',
+      'dublin': 'Europe/Dublin',
+      'auckland': 'Pacific/Auckland',
+      'manila': 'Asia/Manila',
+      'kuala lumpur': 'Asia/Kuala_Lumpur',
+      'bangalore': 'Asia/Kolkata',
+      'chennai': 'Asia/Kolkata',
+      'hyderabad': 'Asia/Kolkata',
+      'lahore': 'Asia/Karachi',
+      'karachi': 'Asia/Karachi',
+      'riyadh': 'Asia/Riyadh',
+      'jeddah': 'Asia/Riyadh',
+      'doha': 'Asia/Qatar',
+      'kuwait': 'Asia/Kuwait',
+      'bahrain': 'Asia/Bahrain',
+      'muscat': 'Asia/Muscat',
+      'ankara': 'Europe/Istanbul',
+      'tel aviv': 'Asia/Jerusalem',
+      'jerusalem': 'Asia/Jerusalem',
+      'montreal': 'America/Toronto',
+      'calgary': 'America/Edmonton',
+      'edmonton': 'America/Edmonton',
+      'ottawa': 'America/Toronto',
+      'miami': 'America/New_York',
+      'houston': 'America/Chicago',
+      'dallas': 'America/Chicago',
+      'seattle': 'America/Los_Angeles',
+      'boston': 'America/New_York',
+      'philadelphia': 'America/New_York',
+      'atlanta': 'America/New_York',
+      'phoenix': 'America/Phoenix',
+      'denver': 'America/Denver',
+      'detroit': 'America/Detroit',
+      'minneapolis': 'America/Chicago',
+      'st louis': 'America/Chicago',
+      'san diego': 'America/Los_Angeles',
+      'portland': 'America/Los_Angeles',
+      'las vegas': 'America/Los_Angeles',
+      'orlando': 'America/New_York',
+      'tampa': 'America/New_York',
+      'pittsburgh': 'America/New_York',
+      'cleveland': 'America/New_York',
+      'cincinnati': 'America/New_York',
+      'columbus': 'America/New_York',
+      'indianapolis': 'America/Indiana/Indianapolis',
+      'salt lake city': 'America/Denver',
+      'kansas city': 'America/Chicago',
+      'st paul': 'America/Chicago',
+      'sacramento': 'America/Los_Angeles',
+      'san jose': 'America/Los_Angeles',
+      'oakland': 'America/Los_Angeles',
+      'long beach': 'America/Los_Angeles',
+      'baltimore': 'America/New_York',
+      'washington dc': 'America/New_York',
+      'charlotte': 'America/New_York',
+      'nashville': 'America/Chicago',
+      'memphis': 'America/Chicago',
+      'new orleans': 'America/Chicago',
+      'oklahoma city': 'America/Chicago',
+      'albuquerque': 'America/Denver',
+      'el paso': 'America/Denver',
+      'honolulu': 'Pacific/Honolulu',
+      'anchorage': 'America/Anchorage',
+      'petersburg': 'America/Sitka',
+      'wrangell': 'America/Sitka',
+      'craig': 'America/Sitka',
+      'klawock': 'America/Sitka',
+      'thorne bay': 'America/Sitka',
+      'metlakatla': 'America/Sitka',
+      'hydaburg': 'America/Sitka',
+      'skagway': 'America/Juneau',
+      'haines': 'America/Juneau',
+      'girdwood': 'America/Anchorage',
+      'talkeetna': 'America/Anchorage',
+      'denali': 'America/Anchorage',
+      'cantwell': 'America/Anchorage',
+      'healy': 'America/Anchorage',
+      'fox': 'America/Anchorage',
+      'north pole': 'America/Anchorage',
+      'eagle river': 'America/Anchorage',
+      'chugiak': 'America/Anchorage',
+      'peters creek': 'America/Anchorage',
     };
+    let timeZone: string | undefined;
+    if (location) {
+      const loc = location.trim().toLowerCase();
+      // If user provides an IANA time zone, use it directly
+      if (/^[a-z]+\/[a-z_]+$/i.test(loc)) {
+        timeZone = location;
+      } else if (cityToTimeZone[loc]) {
+        timeZone = cityToTimeZone[loc];
+      }
+    }
+    try {
+      const now = new Date();
+      const options: Intl.DateTimeFormatOptions = {
+        timeZone: timeZone,
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        year: 'numeric', month: 'long', day: 'numeric'
+      };
+      const formatter = new Intl.DateTimeFormat(format, options);
+      const parts = formatter.formatToParts(now);
+      const time = parts.filter(p => ['hour','minute','second'].includes(p.type)).map(p => p.value).join(':');
+      const date = parts.filter(p => ['day','month','year'].includes(p.type)).map(p => p.value).join(' ');
+      return {
+        time,
+        date,
+        timeZone: timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+        location: location || undefined
+      };
+    } catch (e) {
+      return {
+        error: (e as Error).message,
+        location,
+        timeZone: timeZone || undefined
+      };
+    }
   }
 })
 
@@ -251,6 +409,65 @@ const searchTextInClient = tool({
   }
 });
 
+const webSearchTool = tool({
+  description: 'Performs web search for current information, news, and general queries. Use this for: current events, news headlines, product reviews, how-to guides, and any information not available in DuckDuckGo instant answers.',
+  parameters: z.object({
+    query: z.string().describe('The search query string'),
+    maxResults: z.number().optional().default(3).describe('Maximum number of results to return (1-10)'),
+  }),
+  execute: async ({ query, maxResults = 3 }) => {
+    // This is a placeholder implementation
+    // In a real app, you'd use Google Custom Search API, Bing Search API, or similar
+    return {
+      error: 'Web search tool not implemented',
+      suggestion: 'To get current web information and news, consider using the Apify RAG Web Browser tool that\'s available in your MCP setup, or implement a proper web search API like Google Custom Search or Bing Search API.',
+      query: query,
+      recommendedTool: 'Apify RAG Web Browser (mcp_apify_apify-slash-rag-web-browser)'
+    };
+  },
+});
+
+export const duckDuckGoTool = tool({
+  description: 'Search DuckDuckGo for instant answers and factual information. Best for: definitions, historical facts, scientific data, mathematical calculations, geographic information. NOT suitable for: current news, real-time data, web search results, or recent events.',
+  parameters: z.object({
+    query: z.string().describe('The search query string - works best with specific factual questions'),
+  }),
+  execute: async ({ query }) => {
+    const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`DuckDuckGo API error: ${response.status}`);
+    }
+    const data = await response.json();
+    console.log('[duckDuckGoTool] Raw API response:', JSON.stringify(data, null, 2));
+    // Check if we got any meaningful results
+    const hasAbstract = data.Abstract && data.Abstract.trim() !== '';
+    const hasTopics = data.RelatedTopics && data.RelatedTopics.length > 0;
+    const hasAnswer = data.Answer && data.Answer.trim() !== '';
+    const hasDefinition = data.Definition && data.Definition.trim() !== '';
+    if (!hasAbstract && !hasTopics && !hasAnswer && !hasDefinition) {
+      const result = {
+        error: 'No instant answer available for this query',
+        suggestion: 'DuckDuckGo instant answers work best for factual questions like "What is the capital of France?", "Who invented the telephone?", or "What is 25% of 200?". For current news or web search results, consider using a different tool.',
+        query: query
+      };
+      console.log('[duckDuckGoTool] Returning:', JSON.stringify(result, null, 2));
+      return result;
+    }
+    const result = {
+      abstract: data.Abstract || '',
+      answer: data.Answer || '',
+      definition: data.Definition || '',
+      relatedTopics: data.RelatedTopics?.slice(0, 5) || [], // Limit to top 5 for brevity
+      source: data.AbstractSource || data.DefinitionSource || '',
+      query: query
+    };
+    console.log('[duckDuckGoTool] Returning:', JSON.stringify(result, null, 2));
+    return result;
+  },
+});
+
+
 export const tools = {
   getCurrentDateTime,
   getCurrentWeather,
@@ -258,5 +475,7 @@ export const tools = {
   getClientFolderStructure,
   readFileContent,
   findClientLintErrors,
-  searchTextInClient
+  searchTextInClient,
+  duckDuckGoTool,
+  webSearchTool
 };
